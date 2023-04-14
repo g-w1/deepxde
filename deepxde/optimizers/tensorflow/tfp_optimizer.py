@@ -75,6 +75,8 @@ class LossAndFlatGradient:
         # Calculate gradients and convert to 1D tf.Tensor
         grads = tape.gradient(loss, self.trainable_variables)
         grads = tf.dynamic_stitch(self.indices, grads)
+        if loss.dtype == tf.float16:
+            loss = tf.cast(loss, dtype=tf.float32)
         return loss, grads
 
     def set_flat_weights(self, weights_1d):
