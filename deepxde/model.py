@@ -64,6 +64,7 @@ class Model:
         decay=None,
         loss_weights=None,
         external_trainable_variables=None,
+        mixed_precision=False,
     ):
         """Configures the model for training.
 
@@ -109,8 +110,12 @@ class Model:
                 physics systems that need to be recovered. If the backend is
                 tensorflow.compat.v1, `external_trainable_variables` is ignored, and all
                 trainable ``dde.Variable`` objects are automatically collected.
+            mixed_precision: A flag to enable mixed precision when using pytorch.
+                This will autocast the model to float16 for the forward cast.
+                To use mixed precision with tensorflow, `set the global policy <https://www.tensorflow.org/guide/mixed_precision>`.
         """
         print("Compiling model...")
+        self.mixed_precision = mixed_precision
         self.opt_name = optimizer
         loss_fn = losses_module.get(loss)
         self.losshistory.set_loss_weights(loss_weights)
@@ -332,10 +337,18 @@ class Model:
 
         def train_step(inputs, targets):
             def closure():
-                losses = outputs_losses_train(inputs, targets)[1]
-                total_loss = torch.sum(losses)
-                self.opt.zero_grad()
-                total_loss.backward()
+                if self.mixed_precision:
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        losses = outputs_losses_train(inputs, targets)[1]
+                        total_loss = torch.sum(losses)
+                        # we do the backprop in float16
+                        self.opt.zero_grad()
+                        total_loss.backward()
+                else:
+                    losses = outputs_losses_train(inputs, targets)[1]
+                    total_loss = torch.sum(losses)
+                    self.opt.zero_grad()
+                    total_loss.backward()
                 return total_loss
 
             self.opt.step(closure)
